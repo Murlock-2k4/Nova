@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Secrets / auth
+.env
+token.json
+credentials.json
+.cache
+.cache*
+
+# Local state / generated files
+alarms.json
+nova_output.wav
+
+# Voice / AI models
+*.onnx
+vosk-model-*/
+
+# Editor
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
