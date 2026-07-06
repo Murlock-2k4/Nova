@@ -1,7 +1,7 @@
 from speech import speak
-from weather import get_weather
-from calendar_tools import get_todays_events
-from lights import turn_on_lights
+from tools.weather import get_weather
+from tools.calendar_tools import get_todays_events
+from tools.lights import turn_on_lights
 
 
 def morning_routine():

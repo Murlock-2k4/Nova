@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from routines import morning_routine
+from tools.routines import morning_routine
 
 TIMEZONE = ZoneInfo("America/Denver")
 BASE_DIR = Path(__file__).resolve().parent

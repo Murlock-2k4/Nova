@@ -1,14 +1,14 @@
-from apps import open_app
-from music import play_song, pause_music
+from tools.apps import open_app
+from tools.music import play_song, pause_music
+from tools.weather import get_weather
+from tools.calendar_tools import get_todays_events
+from tools.alarms import set_wake_alarm, load_saved_alarms
+from tools.routines import morning_routine
 from voice import listen
 from speech import speak
-from weather import get_weather
-from calendar_tools import get_todays_events
+from time_tools import get_current_time
 from personality import handle_special_phrases
 from brain import ask_nova
-from alarms import set_wake_alarm, load_saved_alarms
-from routines import morning_routine
-from time_tools import get_current_time
 
 import state
 import msvcrt
