@@ -3,24 +3,27 @@ import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 import state
 
-CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
-CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
-REDIRECT_URI = "http://127.0.0.1:8888/callback"
+from config import (
+    SPOTIFY_CLIENT_ID,
+    SPOTIFY_CLIENT_SECRET,
+    SPOTIFY_REDIRECT_URI,
+    SPOTIFY_SCOPE,
+)
 
-if not CLIENT_ID or not CLIENT_SECRET:
+if not SPOTIFY_CLIENT_ID or not SPOTIFY_CLIENT_SECRET:
     raise RuntimeError(
         "Missing Spotify credentials. "
-        "Set SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET, then restart VS Code."
+        "Set SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET."
     )
 
 SCOPE = "user-read-playback-state user-modify-playback-state"
 
 sp = spotipy.Spotify(
     auth_manager=SpotifyOAuth(
-        client_id=CLIENT_ID,
-        client_secret=CLIENT_SECRET,
-        redirect_uri=REDIRECT_URI,
-        scope=SCOPE,
+        client_id=SPOTIFY_CLIENT_ID,
+        client_secret=SPOTIFY_CLIENT_SECRET,
+        redirect_uri=SPOTIFY_REDIRECT_URI,
+        scope=SPOTIFY_SCOPE,
         open_browser=True,
     )
 )

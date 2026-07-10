@@ -1,6 +1,6 @@
 import requests
 
-HOME_CITY = "Steenwijk"
+from config import HOME_CITY
 
 
 def geocode_city(city_name: str):

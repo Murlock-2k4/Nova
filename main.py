@@ -9,13 +9,10 @@ from speech import speak
 from time_tools import get_current_time
 from personality import handle_special_phrases
 from brain import ask_nova
+from config import WAKE_PHRASES, ACTIVE_TIMEOUT
 
 import state
 import msvcrt
-
-
-WAKE_PHRASES = ["nova", "hey nova", "no va", "hey no va"]
-ACTIVE_TIMEOUT = 8
 
 
 def extract_command_from_wake_phrase(text: str):

@@ -1,14 +1,16 @@
 import queue
 import sounddevice as sd
 import json
-from pathlib import Path
 from vosk import Model, KaldiRecognizer
 import state
+from config import (
+    VOSK_MODEL_PATH,
+    MIC_DEVICE,
+    MIC_SAMPLE_RATE,
+    MIC_BLOCK_SIZE,
+)
 
-BASE_DIR = Path(__file__).resolve().parent
-MODEL_PATH = BASE_DIR / "vosk-model-small-en-us-0.15"
-
-model = Model(str(MODEL_PATH))
+model = Model(str(VOSK_MODEL_PATH))
 q = queue.Queue()
 
 
@@ -17,15 +19,15 @@ def callback(indata, frames, time, status):
 
 
 def listen(timeout_seconds=None) -> str:
-    samplerate = 48000
+    samplerate = MIC_SAMPLE_RATE
     rec = KaldiRecognizer(model, samplerate)
 
     with sd.RawInputStream(
         samplerate=samplerate,
-        blocksize=8000,
+        blocksize=MIC_BLOCK_SIZE,
         dtype="int16",
         channels=1,
-        device=36,
+        device=MIC_DEVICE,
         callback=callback
     ):
         while True:

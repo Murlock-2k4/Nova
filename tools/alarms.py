@@ -6,10 +6,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from tools.routines import morning_routine
-
-TIMEZONE = ZoneInfo("America/Denver")
-BASE_DIR = Path(__file__).resolve().parent
-ALARMS_FILE = BASE_DIR / "alarms.json"
+from config import TIMEZONE, ALARMS_FILE
 
 active_timers = []
 
@@ -60,7 +57,7 @@ def parse_wake_time(text: str):
     if period == "am" and hour == 12:
         hour = 0
 
-    now = datetime.now(TIMEZONE)
+    now = datetime.now(ZoneInfo(TIMEZONE))
 
     alarm_time = now.replace(
         hour=hour,
@@ -103,7 +100,7 @@ def run_alarm(alarm_time_iso: str):
 
 
 def schedule_alarm(alarm_time: datetime):
-    now = datetime.now(TIMEZONE)
+    now = datetime.now(ZoneInfo(TIMEZONE))
     seconds_until_alarm = (alarm_time - now).total_seconds()
 
     if seconds_until_alarm <= 0:
@@ -141,7 +138,7 @@ def set_wake_alarm(command_text: str) -> str:
 
 def load_saved_alarms():
     alarms = load_alarms()
-    now = datetime.now(TIMEZONE)
+    now = datetime.now(ZoneInfo(TIMEZONE))
     updated_alarms = []
 
     for alarm in alarms:

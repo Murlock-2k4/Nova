@@ -8,30 +8,46 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
+from google.auth.exceptions import RefreshError
+
+from config import GOOGLE_TOKEN_FILE, GOOGLE_CREDENTIALS_FILE
 
 SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
 
-BASE_DIR = Path(__file__).resolve().parent
-TOKEN_FILE = BASE_DIR / "token.json"
-CREDENTIALS_FILE = BASE_DIR / "credentials.json"
+
 
 
 def get_calendar_service():
     creds = None
 
-    if TOKEN_FILE.exists():
-        creds = Credentials.from_authorized_user_file(str(TOKEN_FILE), SCOPES)
+    if GOOGLE_TOKEN_FILE.exists():
+        creds = Credentials.from_authorized_user_file(
+            str(GOOGLE_TOKEN_FILE),
+            SCOPES
+        )
 
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
+    # Try refreshing an expired token
+    if creds and creds.expired and creds.refresh_token:
+        try:
             creds.refresh(Request())
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file(
-                str(CREDENTIALS_FILE), SCOPES
-            )
-            creds = flow.run_local_server(port=0)
+        except RefreshError:
+            creds = None
+            if GOOGLE_TOKEN_FILE.exists():
+                GOOGLE_TOKEN_FILE.unlink()
 
-        TOKEN_FILE.write_text(creds.to_json(), encoding="utf-8")
+    # If we still don't have valid credentials, ask the user to log in
+    if not creds or not creds.valid:
+        flow = InstalledAppFlow.from_client_secrets_file(
+            str(GOOGLE_CREDENTIALS_FILE),
+            SCOPES,
+        )
+
+        creds = flow.run_local_server(port=0)
+
+        GOOGLE_TOKEN_FILE.write_text(
+            creds.to_json(),
+            encoding="utf-8",
+        )
 
     return build("calendar", "v3", credentials=creds)
 

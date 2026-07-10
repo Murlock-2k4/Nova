@@ -4,10 +4,7 @@ from pathlib import Path
 import winsound
 import time
 import state
-
-BASE_DIR = Path(__file__).resolve().parent
-MODEL_PATH = BASE_DIR / "en_US-amy-medium.onnx"
-OUTPUT_FILE = BASE_DIR / "nova_output.wav"
+from config import PIPER_MODEL_PATH, PIPER_OUTPUT_FILE
 
 
 def _speak_blocking(text: str):
@@ -17,8 +14,8 @@ def _speak_blocking(text: str):
         subprocess.run(
             [
                 "piper",
-                "--model", str(MODEL_PATH),
-                "--output_file", str(OUTPUT_FILE)
+                "--model", str(PIPER_MODEL_PATH),
+                "--output_file", str(PIPER_OUTPUT_FILE)
             ],
             input=text,
             text=True,
@@ -26,7 +23,7 @@ def _speak_blocking(text: str):
             stderr=subprocess.DEVNULL
         )
 
-        winsound.PlaySound(str(OUTPUT_FILE), winsound.SND_FILENAME)
+        winsound.PlaySound(str(PIPER_OUTPUT_FILE), winsound.SND_FILENAME)
 
     finally:
         time.sleep(0.4)

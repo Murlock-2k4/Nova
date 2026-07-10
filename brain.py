@@ -1,7 +1,5 @@
 import requests
-
-OLLAMA_URL = "http://localhost:11434/api/generate"
-MODEL_NAME = "llama3"
+from config import OLLAMA_URL, OLLAMA_MODEL
 
 SYSTEM_PROMPT = """
 You are Nova, a smart home voice assistant.
@@ -14,7 +12,7 @@ def ask_nova(user_text: str) -> str:
     response = requests.post(
         OLLAMA_URL,
         json={
-            "model": MODEL_NAME,
+            "model": OLLAMA_MODEL,
             "prompt": f"{SYSTEM_PROMPT}\n\nUser: {user_text}",
             "stream": False
         }
