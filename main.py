@@ -9,6 +9,12 @@ from tools.registry import execute_tool
 
 import state
 import msvcrt
+import logging
+
+from logging_config import setup_logging
+
+setup_logging()
+logger = logging.getLogger(__name__)
 
 
 def extract_command_from_wake_phrase(text: str):
@@ -46,9 +52,6 @@ def active_session():
     print("Nova: Awake.")
     speak("Yes?")
     
-    load_saved_alarms()
-    
-
     while True:
         user_input = listen(timeout_seconds=ACTIVE_TIMEOUT).strip()
 
@@ -89,52 +92,70 @@ def wait_for_space_or_q():
         if key == b" ":
             return "talk"
 
-print("Nova is running. Say 'hey nova' to wake me.")
-while True:
-    # 🎵 MUSIC MODE (no listening unless key pressed)
-    if state.music_is_playing:
-        action = wait_for_space_or_q()
+load_saved_alarms()
 
-        if action == "quit":
+logger.info("Nova started")
+print("Nova is running. Say 'hey Nova' to begin.")
+
+try:
+    while True:
+        if state.music_is_playing:
+            action = wait_for_space_or_q()
+
+            if action == "quit":
+                print("Nova: Goodbye.")
+                speak("Goodbye.")
+                break
+
+            execute_tool("pause_music")
+            state.music_is_playing = False
+
+            print("Nova: Listening...")
+            heard_text = listen(timeout_seconds=8).strip()
+
+        else:
+            heard_text = listen().strip()
+
+        if not heard_text:
+            continue
+
+        lower_text = heard_text.lower()
+
+        if lower_text in ["quit", "exit"]:
             print("Nova: Goodbye.")
             speak("Goodbye.")
             break
 
-        # Pause Spotify before listening
-        execute_tool("pause_music")
-        state.music_is_playing = False
+        special_reply = handle_special_phrases(heard_text)
 
-        print("Nova: Listening...")
-        heard_text = listen(timeout_seconds=8).strip()
+        if special_reply:
+            print("Nova:", special_reply)
+            speak(special_reply)
+            active_session()
+            continue
 
-    else:
-        heard_text = listen().strip()
+        command = extract_command_from_wake_phrase(heard_text)
 
-    if not heard_text:
-        continue
+        if command is None:
+            continue
 
-    lower_text = heard_text.lower()
+        if command == "":
+            active_session()
+        else:
+            print(f"Command: {command}")
+            handle_command(command)
+            active_session()
 
-    if lower_text in ["quit", "exit"]:
-        print("Nova: Goodbye.")
-        speak("Goodbye.")
-        break
+except KeyboardInterrupt:
+    logger.info("Nova stopped with keyboard interrupt")
+    print("\nNova stopped.")
 
-    special_reply = handle_special_phrases(heard_text)
-    if special_reply:
-        print("Nova:", special_reply)
-        speak(special_reply)
-        active_session()
-        continue
+except Exception:
+    logger.exception("Unexpected fatal error in Nova")
+    print(
+        "Nova encountered an unexpected error. "
+        "Check logs/nova.log for details."
+    )
 
-    command = extract_command_from_wake_phrase(heard_text)
-
-    if command is None:
-        continue
-
-    if command == "":
-        active_session()
-    else:
-        print(f"Command: {command}")
-        handle_command(command)
-        active_session()
+finally:
+    logger.info("Nova shut down")

@@ -9,7 +9,9 @@ from tools.alarms import set_wake_alarm
 from tools.routines import morning_routine
 from tools.lights import turn_on_lights
 from time_tools import get_current_time
+import logging
 
+logger = logging.getLogger(__name__)
 
 def run_morning_routine() -> str:
     return morning_routine()
@@ -121,19 +123,45 @@ def get_tool_descriptions() -> str:
     return "\n".join(lines)
 
 
-def execute_tool(tool_name: str, arguments: dict[str, Any] | None = None):
+def execute_tool(
+    tool_name: str,
+    arguments: dict[str, Any] | None = None,
+):
     tool = get_tool(tool_name)
 
     if tool is None:
-        return f"Unknown tool: {tool_name}"
+        logger.warning("Unknown tool requested: %s", tool_name)
+        return f"I don't recognize the tool {tool_name}."
 
     function: Callable = tool["function"]
     arguments = arguments or {}
 
+    logger.info(
+        "Executing tool=%s arguments=%s",
+        tool_name,
+        arguments,
+    )
+
     try:
-        return function(**arguments)
-    except TypeError as error:
-        return f"Invalid arguments for {tool_name}: {error}"
-    except Exception as error:
-        print(f"Tool error [{tool_name}]: {error}")
-        return f"The {tool_name} tool failed."
+        result = function(**arguments)
+
+        logger.info(
+            "Tool completed successfully: %s",
+            tool_name,
+        )
+
+        return result
+
+    except TypeError:
+        logger.exception(
+            "Invalid arguments supplied to tool: %s",
+            tool_name,
+        )
+        return "I couldn't use that command because some information was missing."
+
+    except Exception:
+        logger.exception(
+            "Tool execution failed: %s",
+            tool_name,
+        )
+        return f"Sorry, the {tool_name.replace('_', ' ')} tool failed."

@@ -46,3 +46,8 @@ SPOTIFY_SCOPE = (
     "user-read-playback-state "
     "user-modify-playback-state"
 )
+
+# Logging
+LOG_DIR = BASE_DIR / "logs"
+LOG_FILE = LOG_DIR / "nova.log"
+LOG_LEVEL = os.getenv("NOVA_LOG_LEVEL", "INFO").upper()
