@@ -6,6 +6,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from tools.routines import morning_routine
+from speech import speak
 from config import TIMEZONE, ALARMS_FILE
 
 active_timers = []
@@ -96,7 +97,10 @@ def remove_alarm(alarm_time_iso: str):
 
 def run_alarm(alarm_time_iso: str):
     remove_alarm(alarm_time_iso)
-    morning_routine()
+
+    result = morning_routine()
+    print("Nova:", result)
+    speak(result)
 
 
 def schedule_alarm(alarm_time: datetime):

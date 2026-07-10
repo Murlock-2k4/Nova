@@ -12,8 +12,7 @@ from time_tools import get_current_time
 
 
 def run_morning_routine() -> str:
-    morning_routine()
-    return "Morning routine started."
+    return morning_routine()
 
 
 TOOLS: dict[str, dict[str, Any]] = {
