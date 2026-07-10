@@ -1,15 +1,11 @@
-from tools.apps import open_app
-from tools.music import play_song, pause_music
-from tools.weather import get_weather
-from tools.calendar_tools import get_todays_events
-from tools.alarms import set_wake_alarm, load_saved_alarms
-from tools.routines import morning_routine
+from router import route_command
 from voice import listen
 from speech import speak
-from time_tools import get_current_time
 from personality import handle_special_phrases
 from brain import ask_nova
 from config import WAKE_PHRASES, ACTIVE_TIMEOUT
+from tools.alarms import load_saved_alarms
+from tools.registry import execute_tool
 
 import state
 import msvcrt
@@ -32,57 +28,13 @@ def extract_command_from_wake_phrase(text: str):
 
 
 def handle_command(user_input: str):
-    lower_text = user_input.lower().strip()
+    route_result = route_command(user_input)
 
-    if lower_text.startswith("open "):
-        app_name = user_input[5:].strip()
-        result = open_app(app_name)
-        print("Nova:", result)
-        speak("Opening.")
-        return
+    if route_result.handled:
+        if route_result.response:
+            print("Nova:", route_result.response)
+            speak(route_result.response)
 
-    if lower_text.startswith("play "):
-        song_name = user_input[5:].strip()
-        result = play_song(song_name)
-        print("Nova:", result)
-        speak("Playing.")
-        return
-
-    if "weather" in lower_text:
-        result = get_weather()
-        print("Nova:", result)
-        speak(result)
-        return
-
-    if "calendar" in lower_text or "schedule" in lower_text:
-        result = get_todays_events()
-        print("Nova:", result)
-        speak(result)
-        return
-
-    if lower_text in ["stop music", "music off"]:
-        pause_music()
-        state.music_is_playing = False
-        print("Nova: Music stopped.")
-        speak("Music stopped.")
-        return
-    
-    if "wake me up" in lower_text or "set alarm" in lower_text:
-        result = set_wake_alarm(user_input)
-        print("Nova:", result)
-        speak(result)
-        return
-
-    if "morning routine" in lower_text:
-        print("Nova: Starting morning routine.")
-        speak("Starting morning routine.")
-        morning_routine()
-        return
-    
-    if "what time" in lower_text or "current time" in lower_text:
-        result = get_current_time()
-        print("Nova:", result)
-        speak(result)
         return
 
     reply = ask_nova(user_input)
@@ -149,7 +101,7 @@ while True:
             break
 
         # Pause Spotify before listening
-        pause_music()
+        execute_tool("pause_music")
         state.music_is_playing = False
 
         print("Nova: Listening...")
