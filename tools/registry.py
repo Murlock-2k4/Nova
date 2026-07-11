@@ -110,6 +110,7 @@ TOOLS: dict[str, dict[str, Any]] = {
     },
 }
 
+
 def get_tool(tool_name: str) -> dict[str, Any] | None:
     return TOOLS.get(tool_name)
 
@@ -165,3 +166,41 @@ def execute_tool(
             tool_name,
         )
         return f"Sorry, the {tool_name.replace('_', ' ')} tool failed."
+
+
+def get_ollama_tools() -> list[dict[str, Any]]:
+    ollama_tools = []
+
+    for tool_name, tool in TOOLS.items():
+        properties = {}
+        required = []
+
+        for parameter_name, parameter in tool["parameters"].items():
+            properties[parameter_name] = {
+                "type": parameter.get("type", "string"),
+                "description": parameter.get("description", ""),
+            }
+
+            if parameter.get("required", False):
+                required.append(parameter_name)
+
+        parameter_schema = {
+            "type": "object",
+            "properties": properties,
+        }
+
+        if required:
+            parameter_schema["required"] = required
+
+        ollama_tools.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": tool_name,
+                    "description": tool["description"],
+                    "parameters": parameter_schema,
+                },
+            }
+        )
+
+    return ollama_tools
