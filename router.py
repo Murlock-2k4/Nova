@@ -72,9 +72,15 @@ def route_command(user_input: str) -> RouteResult:
         )
 
     if "what time" in lower_text or "current time" in lower_text:
+        city_name = extract_time_city(text)
+        arguments: dict[str, Any] = {}
+
+        if city_name:
+            arguments["city_name"] = city_name
+
         return RouteResult(
             handled=True,
-            response=execute_tool("get_current_time"),
+            response=execute_tool("get_current_time", arguments),
         )
 
     if "wake me up" in lower_text or "set alarm" in lower_text:
@@ -120,6 +126,38 @@ def extract_weather_city(text: str) -> str | None:
         if position != -1:
             city_start = position + len(phrase)
             city_name = text[city_start:].strip(" ,.!?")
+
+            if city_name:
+                return city_name
+
+    return None
+
+def extract_time_city(text: str) -> str | None:
+    lower_text = text.lower()
+
+    phrases = [
+        "what time is it in ",
+        "what time is it on ",
+        "current time in ",
+        "current time at ",
+    ]
+
+    for phrase in phrases:
+        position = lower_text.find(phrase)
+
+        if position != -1:
+            city_start = position + len(phrase)
+            city_name = text[city_start:].strip(" ,.!?")
+
+            if city_name:
+                return city_name
+
+    # Also handle phrasing such as: "In Amsterdam, what time is it?"
+    if lower_text.startswith("in "):
+        marker = lower_text.find(" what time")
+
+        if marker != -1:
+            city_name = text[3:marker].strip(" ,.!?")
 
             if city_name:
                 return city_name

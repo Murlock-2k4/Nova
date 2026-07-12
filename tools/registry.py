@@ -104,9 +104,20 @@ TOOLS: dict[str, dict[str, Any]] = {
     },
 
     "get_current_time": {
-        "description": "Get the current time in Nova's configured timezone.",
+        "description": (
+            "Get the current time, optionally for a requested city or place."
+        ),
         "function": get_current_time,
-        "parameters": {},
+        "parameters": {
+            "city_name": {
+                "type": "string",
+                "description": (
+                    "Optional city or place name. Leave empty to use Nova's "
+                    "configured timezone."
+                ),
+                "required": False,
+            }
+        },
     },
 }
 
