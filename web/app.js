@@ -49,6 +49,49 @@ let keepaliveTimer = null;
 |--------------------------------------------------------------------------
 */
 
+let historyLoaded = false;
+
+async function loadConversationHistory() {
+    if (!messagesContainer || historyLoaded) {
+        return;
+    }
+
+    try {
+        const response = await fetch("/api/history?limit=80", {
+            headers: { Accept: "application/json" },
+            cache: "no-store",
+        });
+
+        if (!response.ok) {
+            throw new Error(`History request failed: ${response.status}`);
+        }
+
+        const data = await response.json();
+        const messages = Array.isArray(data.messages) ? data.messages : [];
+
+        messagesContainer.innerHTML = "";
+
+        if (!messages.length) {
+            addMessage("Nova", "Hello. What can I help you with?", "nova");
+        } else {
+            messages.forEach((message) => {
+                const isUser = message.role === "user";
+                addMessage(
+                    isUser ? "You" : "Nova",
+                    message.content || "",
+                    isUser ? "user" : (message.source === "error" ? "error" : "nova")
+                );
+            });
+        }
+
+        historyLoaded = true;
+    } catch (error) {
+        console.error("Unable to load conversation history:", error);
+        messagesContainer.innerHTML = "";
+        addMessage("Nova", "Hello. What can I help you with?", "nova");
+    }
+}
+
 function addMessage(sender, text, type = "nova") {
     if (!messagesContainer) {
         return;
@@ -364,16 +407,29 @@ commandForm?.addEventListener("submit", async (event) => {
 |--------------------------------------------------------------------------
 */
 
-clearButton?.addEventListener("click", () => {
-    messagesContainer.innerHTML = "";
+clearButton?.addEventListener("click", async () => {
+    clearButton.disabled = true;
 
-    addMessage(
-        "Nova",
-        "Conversation cleared. What can I help you with?",
-        "nova"
-    );
+    try {
+        const response = await fetch("/api/history", { method: "DELETE" });
 
-    commandInput.focus();
+        if (!response.ok) {
+            throw new Error(`Clear history failed: ${response.status}`);
+        }
+
+        messagesContainer.innerHTML = "";
+        addMessage(
+            "Nova",
+            "Conversation cleared. What can I help you with?",
+            "nova"
+        );
+    } catch (error) {
+        console.error("Unable to clear conversation history:", error);
+        addMessage("Nova", "I couldn't clear the saved conversation.", "error");
+    } finally {
+        clearButton.disabled = false;
+        commandInput.focus();
+    }
 });
 
 
@@ -492,6 +548,7 @@ updateClock();
 setInterval(updateClock, 1000);
 
 updateOrb(currentStatus);
+loadConversationHistory();
 connectStateSocket();
 
 commandInput?.focus();

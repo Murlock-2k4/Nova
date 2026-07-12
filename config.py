@@ -36,6 +36,7 @@ PIPER_OUTPUT_FILE = BASE_DIR / "nova_output.wav"
 
 # Local data
 ALARMS_FILE = BASE_DIR / "alarms.json"
+DATABASE_FILE = BASE_DIR / "nova.db"
 GOOGLE_TOKEN_FILE = BASE_DIR / "token.json"
 GOOGLE_CREDENTIALS_FILE = BASE_DIR / "credentials.json"
 

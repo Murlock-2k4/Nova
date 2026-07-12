@@ -22,6 +22,12 @@ from tools.music import (
 )
 
 from brain import ask_nova
+from database import (
+    clear_conversation_history,
+    get_recent_messages,
+    initialize_database,
+    save_exchange,
+)
 from logging_config import setup_logging
 from router import route_command
 from state import (
@@ -106,6 +112,7 @@ def queue_state_broadcast(snapshot: dict[str, Any]) -> None:
 async def lifespan(_: FastAPI):
     global server_loop
 
+    initialize_database()
     server_loop = asyncio.get_running_loop()
     add_state_listener(queue_state_broadcast)
     logger.info("Nova WebSocket state broadcaster started")
@@ -121,7 +128,7 @@ async def lifespan(_: FastAPI):
 app = FastAPI(
     title="Nova API",
     description="Local API for the Nova voice assistant.",
-    version="0.2.0",
+    version="0.3.0",
     lifespan=lifespan,
 )
 
@@ -253,6 +260,11 @@ def run_command(request: CommandRequest):
 
     response, source = process_command(request.command)
 
+    try:
+        save_exchange(request.command, response, source)
+    except Exception:
+        logger.exception("Could not save conversation history")
+
     logger.info("API command completed source=%s", source)
 
     return CommandResponse(
@@ -260,6 +272,17 @@ def run_command(request: CommandRequest):
         response=response,
         source=source,
     )
+
+
+@app.get("/api/history")
+def conversation_history(limit: int = 50):
+    return {"messages": get_recent_messages(limit)}
+
+
+@app.delete("/api/history")
+def delete_conversation_history():
+    deleted_count = clear_conversation_history()
+    return {"deleted": deleted_count}
 
 
 @app.get("/api/music/status")
