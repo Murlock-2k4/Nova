@@ -19,32 +19,41 @@ def callback(indata, frames, time, status):
 
 
 def listen(timeout_seconds=None) -> str:
+    state.set_status("listening")
+
     samplerate = MIC_SAMPLE_RATE
     rec = KaldiRecognizer(model, samplerate)
 
-    with sd.RawInputStream(
-        samplerate=samplerate,
-        blocksize=MIC_BLOCK_SIZE,
-        dtype="int16",
-        channels=1,
-        device=MIC_DEVICE,
-        callback=callback
-    ):
-        while True:
-            try:
-                if timeout_seconds is None:
-                    data = q.get()
-                else:
-                    data = q.get(timeout=timeout_seconds)
-            except queue.Empty:
-                return ""
+    try:
+        with sd.RawInputStream(
+            samplerate=samplerate,
+            blocksize=MIC_BLOCK_SIZE,
+            dtype="int16",
+            channels=1,
+            device=MIC_DEVICE,
+            callback=callback,
+        ):
+            while True:
+                try:
+                    if timeout_seconds is None:
+                        data = q.get()
+                    else:
+                        data = q.get(timeout=timeout_seconds)
 
-            if state.is_speaking:
-                continue
+                except queue.Empty:
+                    return ""
 
-            if rec.AcceptWaveform(data):
-                result = json.loads(rec.Result())
-                text = result.get("text", "").strip()
-                if text:
-                    print("You:", text)
-                return text
+                if state.is_speaking():
+                    continue
+
+                if rec.AcceptWaveform(data):
+                    result = json.loads(rec.Result())
+                    text = result.get("text", "").strip()
+
+                    if text:
+                        print("You:", text)
+
+                    return text
+
+    finally:
+        state.set_status("idle")

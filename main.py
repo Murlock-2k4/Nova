@@ -99,7 +99,7 @@ print("Nova is running. Say 'hey Nova' to begin.")
 
 try:
     while True:
-        if state.music_is_playing:
+        if state.is_music_playing():
             action = wait_for_space_or_q()
 
             if action == "quit":
@@ -108,7 +108,7 @@ try:
                 break
 
             execute_tool("pause_music")
-            state.music_is_playing = False
+            state.set_music_playing(False)
 
             print("Nova: Listening...")
             heard_text = listen(timeout_seconds=8).strip()

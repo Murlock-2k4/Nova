@@ -67,7 +67,7 @@ def play_song(song_request: str) -> str:
     artist_names = ", ".join(artist["name"] for artist in best_track["artists"])
     track_id = best_track["id"]
 
-    state.music_is_playing = True
+    state.set_music_playing(True)
     os.startfile(f"spotify:track:{track_id}")
 
     return f"Opening {track_name} by {artist_names} in Spotify."
@@ -76,7 +76,7 @@ def play_song(song_request: str) -> str:
 def pause_music() -> str:
     try:
         sp.pause_playback()
-        state.music_is_playing = False
+        state.set_music_playing(False)
         return "Paused music."
     except Exception as error:
         print("Spotify pause error:", error)

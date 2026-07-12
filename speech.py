@@ -8,7 +8,7 @@ from config import PIPER_MODEL_PATH, PIPER_OUTPUT_FILE
 
 
 def _speak_blocking(text: str):
-    state.is_speaking = True
+    state.set_speaking(True)
 
     try:
         subprocess.run(
@@ -27,7 +27,7 @@ def _speak_blocking(text: str):
 
     finally:
         time.sleep(0.4)
-        state.is_speaking = False
+        state.set_speaking(False)
 
 
 def speak(text: str):
