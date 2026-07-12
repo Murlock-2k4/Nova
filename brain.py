@@ -18,25 +18,46 @@ You are Nova, a local smart-home voice assistant.
 
 Reply briefly, clearly, and naturally.
 
-When the user asks for an action that matches an available tool,
-call that tool instead of pretending to perform the action.
+Only call a tool when the user clearly requests an action or asks for
+live, personal, or device-specific information.
 
-Use tools for live or personal information such as:
-- weather
+Use tools for:
+- current weather or forecasts
 - current time
-- calendar
-- Spotify
-- alarms
-- applications
-- lights
-- morning routines
+- the user's calendar
+- Spotify playback
+- setting alarms
+- opening applications
+- controlling lights
+- starting routines
 
-For ordinary knowledge questions, answer directly without calling a tool.
+Do NOT call tools for:
+- greetings such as "how are you?"
+- general knowledge questions
+- definitions such as "what is blue?"
+- opinions
+- casual conversation
+- explanations
 
-Do not claim that a tool succeeded unless the tool result says it succeeded.
+Examples:
 
-Do not show your internal reasoning or analysis.
-Return only the final answer or a tool call.
+User: How are you today?
+Assistant: I'm doing well. How can I help?
+
+User: What is blue?
+Assistant: Blue is a color in the visible spectrum.
+
+User: What's the weather today?
+Assistant: Call get_weather.
+
+User: Do I have anything planned today?
+Assistant: Call get_calendar.
+
+User: Could you play some jazz?
+Assistant: Call play_music.
+
+If no tool clearly applies, answer normally.
+Never call a loosely related tool.
 """
 
 
@@ -102,6 +123,15 @@ def ask_nova(user_text: str) -> str:
                     arguments,
                 )
 
+                if not tool_call_is_valid(user_text, tool_name):
+                    logger.warning(
+                        "Rejected invalid AI tool selection: tool=%s user_text=%s",
+                        tool_name,
+                        user_text,
+                    )
+
+                    return ask_without_tools(user_text)
+
                 result = execute_tool(tool_name, arguments)
 
                 if result:
@@ -136,3 +166,98 @@ def ask_nova(user_text: str) -> str:
     except (KeyError, TypeError, ValueError):
         logger.exception("Invalid Ollama tool response")
         return "I received an invalid response from my language model."
+    
+def tool_call_is_valid(
+    user_text: str,
+    tool_name: str,
+) -> bool:
+    text = user_text.lower()
+
+    rules = {
+        "get_weather": (
+            "weather",
+            "forecast",
+            "temperature",
+            "rain",
+            "snow",
+        ),
+        "get_current_time": (
+            "what time",
+            "current time",
+            "time is it",
+        ),
+        "get_calendar": (
+            "calendar",
+            "schedule",
+            "planned",
+            "events",
+            "appointments",
+        ),
+        "play_music": (
+            "play",
+            "music",
+            "song",
+            "spotify",
+            "listen to",
+        ),
+        "pause_music": (
+            "pause",
+            "stop music",
+            "stop spotify",
+        ),
+        "open_app": (
+            "open",
+            "launch",
+            "start app",
+        ),
+        "set_wake_alarm": (
+            "alarm",
+            "wake me",
+            "wake up",
+        ),
+        "start_morning_routine": (
+            "morning routine",
+            "start my morning",
+        ),
+        "turn_on_lights": (
+            "light",
+            "lights",
+            "lamp",
+        ),
+    }
+
+    keywords = rules.get(tool_name)
+
+    if keywords is None:
+        return False
+
+    return any(keyword in text for keyword in keywords)
+
+def ask_without_tools(user_text: str) -> str:
+    response = requests.post(
+        OLLAMA_CHAT_URL,
+        json={
+            "model": OLLAMA_MODEL,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are Nova, a concise and friendly assistant. "
+                        "Answer the user's question directly in one or two "
+                        "sentences. Do not mention or call tools."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": user_text,
+                },
+            ],
+            "stream": False,
+            "keep_alive": "30m",
+        },
+        timeout=60,
+    )
+
+    response.raise_for_status()
+
+    return response.json()["message"]["content"].strip()

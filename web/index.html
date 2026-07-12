@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>Nova</title>
+
+    <link
+        rel="stylesheet"
+        href="/static/styles.css"
+    >
+</head>
+
+<body>
+    <div class="app-shell">
+
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-icon">N</div>
+
+                <div>
+                    <h1>Nova</h1>
+                    <p>Home Assistant</p>
+                </div>
+            </div>
+
+            <nav class="navigation">
+                <button class="nav-button active" data-page="home">
+                    <span class="nav-icon">◉</span>
+                    <span>Home</span>
+                </button>
+
+                <button class="nav-button" data-page="lights">
+                    <span class="nav-icon">☀</span>
+                    <span>Lights</span>
+                </button>
+
+                <button class="nav-button" data-page="music">
+                    <span class="nav-icon">♫</span>
+                    <span>Music</span>
+                </button>
+
+                <button class="nav-button" data-page="calendar">
+                    <span class="nav-icon">▣</span>
+                    <span>Calendar</span>
+                </button>
+
+                <button class="nav-button" data-page="alarms">
+                    <span class="nav-icon">◷</span>
+                    <span>Alarms</span>
+                </button>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="connection-indicator">
+                    <span id="connection-dot" class="status-dot offline"></span>
+                    <span id="connection-text">Connecting...</span>
+                </div>
+            </div>
+        </aside>
+
+        <main class="main-content">
+
+            <section class="top-bar">
+                <div>
+                    <p class="eyebrow">Assistant status</p>
+                    <h2 id="status-title">Idle</h2>
+                </div>
+
+                <div id="clock" class="clock">--:--</div>
+            </section>
+
+            <section id="home-page" class="page active">
+
+                <div class="orb-area">
+                    <div id="nova-orb" class="nova-orb idle">
+                        <div class="orb-glow"></div>
+                        <div class="orb-ring ring-one"></div>
+                        <div class="orb-ring ring-two"></div>
+                        <div class="orb-ring ring-three"></div>
+                        <div class="orb-core"></div>
+                    </div>
+
+                    <p id="orb-label" class="orb-label">
+                        Nova is ready
+                    </p>
+                </div>
+
+                <section class="conversation-panel">
+                    <div class="conversation-header">
+                        <div>
+                            <p class="eyebrow">Conversation</p>
+                            <h3>Recent messages</h3>
+                        </div>
+
+                        <button id="clear-button" class="text-button">
+                            Clear
+                        </button>
+                    </div>
+
+                    <div id="messages" class="messages">
+                        <div class="message nova-message">
+                            <span class="message-name">Nova</span>
+                            <p>Hello. What can I help you with?</p>
+                        </div>
+                    </div>
+
+                    <form id="command-form" class="command-form">
+                        <input
+                            id="command-input"
+                            type="text"
+                            placeholder="Ask Nova something..."
+                            autocomplete="off"
+                            maxlength="2000"
+                        >
+
+                        <button
+                            id="send-button"
+                            type="submit"
+                        >
+                            Send
+                        </button>
+                    </form>
+                </section>
+
+            </section>
+
+            <section id="lights-page" class="page placeholder-page">
+                <h2>Lighting</h2>
+                <p>Lighting controls will appear here.</p>
+            </section>
+
+            <section id="music-page" class="page placeholder-page">
+                <h2>Music</h2>
+                <p>Spotify controls will appear here.</p>
+            </section>
+
+            <section id="calendar-page" class="page placeholder-page">
+                <h2>Calendar</h2>
+                <p>Your calendar overview will appear here.</p>
+            </section>
+
+            <section id="alarms-page" class="page placeholder-page">
+                <h2>Alarms</h2>
+                <p>Your saved alarms will appear here.</p>
+            </section>
+
+        </main>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

@@ -9,6 +9,10 @@ from brain import ask_nova
 from logging_config import setup_logging
 from router import route_command
 from typing import Any
+from pathlib import Path
+
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 
 class AssistantStateResponse(BaseModel):
@@ -29,6 +33,15 @@ app = FastAPI(
     title="Nova API",
     description="Local API for the Nova voice assistant.",
     version="0.1.0",
+)
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+WEB_DIR = BASE_DIR / "web"
+
+app.mount(
+    "/static",
+    StaticFiles(directory=str(WEB_DIR)),
+    name="static",
 )
 
 
@@ -116,13 +129,9 @@ def process_command(command: str) -> tuple[str, str]:
         return error_response, "error"
 
 
-@app.get("/")
-def root():
-    return {
-        "name": "Nova API",
-        "status": "running",
-        "docs": "/docs",
-    }
+@app.get("/", include_in_schema=False)
+def dashboard():
+    return FileResponse(WEB_DIR / "index.html")
 
 
 @app.get("/api/status", response_model=AssistantStateResponse)
