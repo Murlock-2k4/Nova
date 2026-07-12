@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from threading import Lock
@@ -19,12 +20,40 @@ class AssistantState:
     updated_at: str = ""
 
 
+StateListener = Callable[[dict[str, Any]], None]
+
 _state = AssistantState()
 _state_lock = Lock()
+_listeners: set[StateListener] = set()
+_listeners_lock = Lock()
 
 
 def _current_timestamp() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def add_state_listener(listener: StateListener) -> None:
+    """Register a callback that receives a snapshot after every state change."""
+    with _listeners_lock:
+        _listeners.add(listener)
+
+
+def remove_state_listener(listener: StateListener) -> None:
+    with _listeners_lock:
+        _listeners.discard(listener)
+
+
+def _notify_listeners(snapshot: dict[str, Any]) -> None:
+    # Copy the listeners so callbacks run without holding Nova's state locks.
+    with _listeners_lock:
+        listeners = tuple(_listeners)
+
+    for listener in listeners:
+        try:
+            listener(snapshot.copy())
+        except Exception:
+            # State updates must never fail because a dashboard listener failed.
+            continue
 
 
 def update_state(**changes: Any) -> None:
@@ -36,6 +65,9 @@ def update_state(**changes: Any) -> None:
             setattr(_state, name, value)
 
         _state.updated_at = _current_timestamp()
+        snapshot = asdict(_state)
+
+    _notify_listeners(snapshot)
 
 
 def get_state() -> dict[str, Any]:

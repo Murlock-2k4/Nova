@@ -1,18 +1,36 @@
+import asyncio
 import logging
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from state import get_state, set_error, update_state
+
+from tools.music import (
+    get_playback_state,
+    next_track,
+    pause_music,
+    play_track_uri,
+    previous_track,
+    resume_music,
+    search_tracks,
+    set_volume,
+)
 
 from brain import ask_nova
 from logging_config import setup_logging
 from router import route_command
-from typing import Any
-from pathlib import Path
-
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
+from state import (
+    add_state_listener,
+    get_state,
+    remove_state_listener,
+    set_error,
+    update_state,
+)
 
 
 class AssistantStateResponse(BaseModel):
@@ -25,14 +43,86 @@ class AssistantStateResponse(BaseModel):
     last_error: str | None
     updated_at: str
 
+
+class ConnectionManager:
+    def __init__(self) -> None:
+        self._connections: set[WebSocket] = set()
+        self._lock = asyncio.Lock()
+
+    async def connect(self, websocket: WebSocket) -> None:
+        await websocket.accept()
+
+        async with self._lock:
+            self._connections.add(websocket)
+
+        await websocket.send_json({
+            "type": "state",
+            "data": get_state(),
+        })
+
+    async def disconnect(self, websocket: WebSocket) -> None:
+        async with self._lock:
+            self._connections.discard(websocket)
+
+    async def broadcast_state(self, snapshot: dict[str, Any]) -> None:
+        async with self._lock:
+            connections = tuple(self._connections)
+
+        disconnected: list[WebSocket] = []
+
+        for websocket in connections:
+            try:
+                await websocket.send_json({
+                    "type": "state",
+                    "data": snapshot,
+                })
+            except Exception:
+                disconnected.append(websocket)
+
+        if disconnected:
+            async with self._lock:
+                for websocket in disconnected:
+                    self._connections.discard(websocket)
+
+
 setup_logging()
 logger = logging.getLogger(__name__)
+manager = ConnectionManager()
+server_loop: asyncio.AbstractEventLoop | None = None
+
+
+def queue_state_broadcast(snapshot: dict[str, Any]) -> None:
+    """Safely forward state changes from Nova's worker threads to FastAPI."""
+    if server_loop is None or server_loop.is_closed():
+        return
+
+    asyncio.run_coroutine_threadsafe(
+        manager.broadcast_state(snapshot),
+        server_loop,
+    )
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    global server_loop
+
+    server_loop = asyncio.get_running_loop()
+    add_state_listener(queue_state_broadcast)
+    logger.info("Nova WebSocket state broadcaster started")
+
+    try:
+        yield
+    finally:
+        remove_state_listener(queue_state_broadcast)
+        server_loop = None
+        logger.info("Nova WebSocket state broadcaster stopped")
 
 
 app = FastAPI(
     title="Nova API",
     description="Local API for the Nova voice assistant.",
-    version="0.1.0",
+    version="0.2.0",
+    lifespan=lifespan,
 )
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -44,9 +134,6 @@ app.mount(
     name="static",
 )
 
-
-# This allows a future browser dashboard to call Nova.
-# We are limiting it to local development addresses for now.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -69,15 +156,22 @@ class CommandRequest(BaseModel):
     )
 
 
+class MusicSearchRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=200)
+
+
+class MusicTrackRequest(BaseModel):
+    uri: str = Field(pattern=r"^spotify:track:")
+
+
+class MusicVolumeRequest(BaseModel):
+    volume_percent: int = Field(ge=0, le=100)
+
+
 class CommandResponse(BaseModel):
     command: str
     response: str
     source: str
-
-
-class StatusResponse(BaseModel):
-    status: str
-    assistant: str
 
 
 def process_command(command: str) -> tuple[str, str]:
@@ -95,9 +189,7 @@ def process_command(command: str) -> tuple[str, str]:
         route_result = route_command(cleaned_command)
 
         if route_result.handled:
-            response = str(
-                route_result.response or "Command completed."
-            )
+            response = str(route_result.response or "Command completed.")
 
             update_state(
                 status="idle",
@@ -121,10 +213,7 @@ def process_command(command: str) -> tuple[str, str]:
         error_response = "Nova could not process that request."
 
         set_error(str(error))
-
-        update_state(
-            last_nova_response=error_response,
-        )
+        update_state(last_nova_response=error_response)
 
         return error_response, "error"
 
@@ -136,7 +225,26 @@ def dashboard():
 
 @app.get("/api/status", response_model=AssistantStateResponse)
 def get_assistant_status():
+    # Retained as a fallback and for diagnostics/API clients.
     return AssistantStateResponse(**get_state())
+
+
+@app.websocket("/ws/state")
+async def state_websocket(websocket: WebSocket):
+    await manager.connect(websocket)
+    logger.info("Dashboard WebSocket connected")
+
+    try:
+        while True:
+            # The browser sends a lightweight keepalive message periodically.
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        logger.exception("Dashboard WebSocket failed")
+    finally:
+        await manager.disconnect(websocket)
+        logger.info("Dashboard WebSocket disconnected")
 
 
 @app.post("/api/command", response_model=CommandResponse)
@@ -145,13 +253,50 @@ def run_command(request: CommandRequest):
 
     response, source = process_command(request.command)
 
-    logger.info(
-        "API command completed source=%s",
-        source,
-    )
+    logger.info("API command completed source=%s", source)
 
     return CommandResponse(
         command=request.command,
         response=response,
         source=source,
     )
+
+
+@app.get("/api/music/status")
+def music_status():
+    return get_playback_state()
+
+
+@app.get("/api/music/search")
+def music_search(query: str):
+    return {"tracks": search_tracks(query)}
+
+
+@app.post("/api/music/play")
+def music_play(request: MusicTrackRequest):
+    return {"message": play_track_uri(request.uri)}
+
+
+@app.post("/api/music/pause")
+def music_pause():
+    return {"message": pause_music()}
+
+
+@app.post("/api/music/resume")
+def music_resume():
+    return {"message": resume_music()}
+
+
+@app.post("/api/music/next")
+def music_next():
+    return {"message": next_track()}
+
+
+@app.post("/api/music/previous")
+def music_previous():
+    return {"message": previous_track()}
+
+
+@app.post("/api/music/volume")
+def music_volume(request: MusicVolumeRequest):
+    return {"message": set_volume(request.volume_percent)}
