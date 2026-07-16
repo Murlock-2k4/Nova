@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -10,7 +11,11 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from tools.alarms import create_alarm, list_alarms, load_saved_alarms, remove_alarm, update_alarm
+from tools.calendar_tools import get_calendar_events
+
 from tools.music import (
+    get_devices,
     get_playback_state,
     next_track,
     pause_music,
@@ -18,23 +23,27 @@ from tools.music import (
     previous_track,
     resume_music,
     search_tracks,
+    select_device,
     set_volume,
 )
 
-from brain import ask_nova
 from database import (
     clear_conversation_history,
+    create_room,
+    get_client,
     get_recent_messages,
     initialize_database,
-    save_exchange,
+    list_rooms,
+    register_client,
+    touch_client,
 )
 from logging_config import setup_logging
-from router import route_command
+from voice_service import voice_service
+from conversation_service import process_and_record
 from state import (
     add_state_listener,
     get_state,
     remove_state_listener,
-    set_error,
     update_state,
 )
 
@@ -115,20 +124,23 @@ async def lifespan(_: FastAPI):
     initialize_database()
     server_loop = asyncio.get_running_loop()
     add_state_listener(queue_state_broadcast)
-    logger.info("Nova WebSocket state broadcaster started")
+    load_saved_alarms()
+    voice_service.start()
+    logger.info("Nova application services started")
 
     try:
         yield
     finally:
+        voice_service.stop()
         remove_state_listener(queue_state_broadcast)
         server_loop = None
-        logger.info("Nova WebSocket state broadcaster stopped")
+        logger.info("Nova application services stopped")
 
 
 app = FastAPI(
     title="Nova API",
     description="Local API for the Nova voice assistant.",
-    version="0.3.0",
+    version="0.4.0",
     lifespan=lifespan,
 )
 
@@ -156,11 +168,22 @@ app.add_middleware(
 
 
 class CommandRequest(BaseModel):
+    client_id: str | None = Field(default=None, max_length=120)
     command: str = Field(
         min_length=1,
         max_length=2000,
         examples=["What's on my calendar today?"],
     )
+
+
+class RoomCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+
+
+class ClientRegisterRequest(BaseModel):
+    client_id: str = Field(min_length=1, max_length=120)
+    name: str = Field(min_length=1, max_length=80)
+    room_id: int | None = Field(default=None, ge=1)
 
 
 class MusicSearchRequest(BaseModel):
@@ -175,54 +198,28 @@ class MusicVolumeRequest(BaseModel):
     volume_percent: int = Field(ge=0, le=100)
 
 
+class MusicDeviceRequest(BaseModel):
+    device_id: str = Field(min_length=1, max_length=200)
+
+
+class AlarmCreateRequest(BaseModel):
+    time: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    days: list[int] = Field(min_length=1, max_length=7)
+    label: str = Field(default="Morning routine", max_length=120)
+    enabled: bool = True
+
+
+class AlarmUpdateRequest(BaseModel):
+    enabled: bool
+
+
 class CommandResponse(BaseModel):
     command: str
     response: str
     source: str
-
-
-def process_command(command: str) -> tuple[str, str]:
-    cleaned_command = command.strip()
-
-    update_state(
-        status="thinking",
-        last_user_message=cleaned_command,
-        last_nova_response="",
-        current_tool=None,
-        last_error=None,
-    )
-
-    try:
-        route_result = route_command(cleaned_command)
-
-        if route_result.handled:
-            response = str(route_result.response or "Command completed.")
-
-            update_state(
-                status="idle",
-                last_nova_response=response,
-            )
-
-            return response, "router"
-
-        response = ask_nova(cleaned_command)
-
-        update_state(
-            status="idle",
-            last_nova_response=response,
-        )
-
-        return response, "ai"
-
-    except Exception as error:
-        logger.exception("API command processing failed")
-
-        error_response = "Nova could not process that request."
-
-        set_error(str(error))
-        update_state(last_nova_response=error_response)
-
-        return error_response, "error"
+    client_id: str | None = None
+    room_id: int | None = None
+    room_name: str | None = None
 
 
 @app.get("/", include_in_schema=False)
@@ -239,12 +236,28 @@ def get_assistant_status():
 @app.websocket("/ws/state")
 async def state_websocket(websocket: WebSocket):
     await manager.connect(websocket)
+    registered_client_id: str | None = None
     logger.info("Dashboard WebSocket connected")
 
     try:
         while True:
-            # The browser sends a lightweight keepalive message periodically.
-            await websocket.receive_text()
+            message = await websocket.receive_json()
+            message_type = message.get("type")
+
+            if message_type == "register":
+                client = register_client(
+                    client_id=str(message.get("client_id", "")),
+                    name=str(message.get("name", "Nova Display")),
+                    room_id=message.get("room_id"),
+                )
+                registered_client_id = client["id"]
+                await websocket.send_json({
+                    "type": "client_registered",
+                    "data": client,
+                })
+            elif message_type == "ping" and registered_client_id:
+                touch_client(registered_client_id)
+                await websocket.send_json({"type": "pong"})
     except WebSocketDisconnect:
         pass
     except Exception:
@@ -256,14 +269,19 @@ async def state_websocket(websocket: WebSocket):
 
 @app.post("/api/command", response_model=CommandResponse)
 def run_command(request: CommandRequest):
-    logger.info("API command received: %s", request.command)
+    logger.info(
+        "API command received client_id=%s command=%s",
+        request.client_id,
+        request.command,
+    )
 
-    response, source = process_command(request.command)
-
-    try:
-        save_exchange(request.command, response, source)
-    except Exception:
-        logger.exception("Could not save conversation history")
+    client = get_client(request.client_id) if request.client_id else None
+    response, source = process_and_record(
+        request.command,
+        client_id=client["id"] if client else None,
+        room_id=client["room_id"] if client else None,
+        source_prefix="chat",
+    )
 
     logger.info("API command completed source=%s", source)
 
@@ -271,7 +289,39 @@ def run_command(request: CommandRequest):
         command=request.command,
         response=response,
         source=source,
+        client_id=client["id"] if client else None,
+        room_id=client["room_id"] if client else None,
+        room_name=client["room_name"] if client else None,
     )
+
+
+@app.get("/api/rooms")
+def get_rooms():
+    return {"rooms": list_rooms()}
+
+
+@app.post("/api/rooms")
+def add_room(request: RoomCreateRequest):
+    return {"room": create_room(request.name)}
+
+
+@app.get("/api/clients/{client_id}")
+def read_client(client_id: str):
+    client = get_client(client_id)
+    return {"client": client}
+
+
+@app.put("/api/clients/{client_id}")
+def update_client(client_id: str, request: ClientRegisterRequest):
+    if request.client_id != client_id:
+        raise ValueError("Client ID in the path and body must match")
+    return {
+        "client": register_client(
+            request.client_id,
+            request.name,
+            request.room_id,
+        )
+    }
 
 
 @app.get("/api/history")
@@ -283,6 +333,16 @@ def conversation_history(limit: int = 50):
 def delete_conversation_history():
     deleted_count = clear_conversation_history()
     return {"deleted": deleted_count}
+
+
+@app.get("/api/music/devices")
+def music_devices():
+    return {"devices": get_devices()}
+
+
+@app.post("/api/music/device")
+def music_select_device(request: MusicDeviceRequest):
+    return {"message": select_device(request.device_id)}
 
 
 @app.get("/api/music/status")
@@ -323,3 +383,43 @@ def music_previous():
 @app.post("/api/music/volume")
 def music_volume(request: MusicVolumeRequest):
     return {"message": set_volume(request.volume_percent)}
+
+
+@app.get("/api/calendar/events")
+def calendar_events(days: int = 7):
+    return {"events": get_calendar_events(days=days)}
+
+
+@app.get("/api/alarms")
+def alarms_list():
+    return {"alarms": list_alarms()}
+
+
+@app.post("/api/alarms")
+def alarms_create(request: AlarmCreateRequest):
+    alarm = create_alarm(
+        request.time,
+        request.days,
+        request.label,
+        request.enabled,
+    )
+    return {"alarm": alarm, "message": "Weekly alarm created."}
+
+
+@app.patch("/api/alarms/{alarm_id}")
+def alarms_update(alarm_id: str, request: AlarmUpdateRequest):
+    alarm = update_alarm(alarm_id, enabled=request.enabled)
+    return {
+        "alarm": alarm,
+        "updated": alarm is not None,
+        "message": "Alarm updated." if alarm else "Alarm not found.",
+    }
+
+
+@app.delete("/api/alarms/{alarm_id}")
+def alarms_delete(alarm_id: str):
+    removed = remove_alarm(alarm_id)
+    return {
+        "removed": removed,
+        "message": "Alarm deleted." if removed else "Alarm not found.",
+    }

@@ -1,32 +1,45 @@
-import queue
-import sounddevice as sd
 import json
-from vosk import Model, KaldiRecognizer
+import queue
+import time
+from threading import Event
+
+import sounddevice as sd
+from vosk import KaldiRecognizer, Model
+
 import state
-from config import (
-    VOSK_MODEL_PATH,
-    MIC_DEVICE,
-    MIC_SAMPLE_RATE,
-    MIC_BLOCK_SIZE,
-)
+from config import MIC_BLOCK_SIZE, MIC_DEVICE, MIC_SAMPLE_RATE, VOSK_MODEL_PATH
 
 model = Model(str(VOSK_MODEL_PATH))
-q = queue.Queue()
 
 
-def callback(indata, frames, time, status):
-    q.put(bytes(indata))
+def listen(
+    timeout_seconds: float | None = None,
+    *,
+    stop_event: Event | None = None,
+) -> str:
+    """Listen for one recognized utterance.
 
-
-def listen(timeout_seconds=None) -> str:
+    ``stop_event`` lets the unified FastAPI process stop the microphone worker
+    without waiting for another spoken phrase. A separate audio queue is used
+    per call so stale audio cannot leak between listening sessions.
+    """
     state.set_status("listening")
 
-    samplerate = MIC_SAMPLE_RATE
-    rec = KaldiRecognizer(model, samplerate)
+    audio_queue: queue.Queue[bytes] = queue.Queue()
+    recognizer = KaldiRecognizer(model, MIC_SAMPLE_RATE)
+    started_at = time.monotonic()
+
+    def callback(indata, frames, callback_time, status):
+        del frames, callback_time
+        if status:
+            # PortAudio status messages are diagnostic only; audio can still be
+            # usable, so do not terminate the listener here.
+            pass
+        audio_queue.put(bytes(indata))
 
     try:
         with sd.RawInputStream(
-            samplerate=samplerate,
+            samplerate=MIC_SAMPLE_RATE,
             blocksize=MIC_BLOCK_SIZE,
             dtype="int16",
             channels=1,
@@ -34,26 +47,31 @@ def listen(timeout_seconds=None) -> str:
             callback=callback,
         ):
             while True:
-                try:
-                    if timeout_seconds is None:
-                        data = q.get()
-                    else:
-                        data = q.get(timeout=timeout_seconds)
-
-                except queue.Empty:
+                if stop_event and stop_event.is_set():
                     return ""
+
+                if (
+                    timeout_seconds is not None
+                    and time.monotonic() - started_at >= timeout_seconds
+                ):
+                    return ""
+
+                try:
+                    data = audio_queue.get(timeout=0.25)
+                except queue.Empty:
+                    continue
 
                 if state.is_speaking():
                     continue
 
-                if rec.AcceptWaveform(data):
-                    result = json.loads(rec.Result())
+                if recognizer.AcceptWaveform(data):
+                    result = json.loads(recognizer.Result())
                     text = result.get("text", "").strip()
 
                     if text:
                         print("You:", text)
 
                     return text
-
     finally:
-        state.set_status("idle")
+        if not (stop_event and stop_event.is_set()):
+            state.set_status("idle")

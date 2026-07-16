@@ -7,7 +7,7 @@ BASE_DIR = Path(__file__).resolve().parent
 # Assistant
 ASSISTANT_NAME = "Nova"
 WAKE_PHRASES = ["nova", "hey nova", "no va", "hey no va"]
-ACTIVE_TIMEOUT = 8
+ACTIVE_TIMEOUT = 30
 
 
 # Local AI
@@ -24,8 +24,8 @@ HOME_CITY = os.getenv("NOVA_HOME_CITY", "Denver")
 
 # Speech recognition
 VOSK_MODEL_PATH = BASE_DIR / "vosk-model-small-en-us-0.15"
-MIC_DEVICE = 1
-MIC_SAMPLE_RATE = 48000
+MIC_DEVICE = None
+MIC_SAMPLE_RATE = 16000
 MIC_BLOCK_SIZE = 8000
 
 
@@ -45,6 +45,7 @@ GOOGLE_CREDENTIALS_FILE = BASE_DIR / "credentials.json"
 SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
 SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
 SPOTIFY_REDIRECT_URI = "http://127.0.0.1:8888/callback"
+SPOTIFY_PREFERRED_DEVICE = os.getenv("SPOTIFY_PREFERRED_DEVICE", "")
 SPOTIFY_SCOPE = (
     "user-read-playback-state "
     "user-modify-playback-state"

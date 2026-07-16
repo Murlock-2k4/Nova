@@ -16,6 +16,38 @@ const clock = document.getElementById("clock");
 
 const navButtons = document.querySelectorAll(".nav-button");
 const pages = document.querySelectorAll(".page");
+const clientSettingsButton = document.getElementById("client-settings-button");
+const clientIdentityName = document.getElementById("client-identity-name");
+const clientIdentityRoom = document.getElementById("client-identity-room");
+const clientSetupModal = document.getElementById("client-setup-modal");
+const clientSetupForm = document.getElementById("client-setup-form");
+const clientNameInput = document.getElementById("client-name-input");
+const clientRoomSelect = document.getElementById("client-room-select");
+const newRoomInput = document.getElementById("new-room-input");
+const addRoomButton = document.getElementById("add-room-button");
+const clientSetupCancel = document.getElementById("client-setup-cancel");
+const clientSetupStatus = document.getElementById("client-setup-status");
+
+const CLIENT_ID_KEY = "nova_client_id";
+const CLIENT_NAME_KEY = "nova_client_name";
+const CLIENT_ROOM_KEY = "nova_room_id";
+
+function createClientId() {
+    if (window.crypto?.randomUUID) {
+        return window.crypto.randomUUID();
+    }
+
+    return `nova-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+const novaClient = {
+    id: localStorage.getItem(CLIENT_ID_KEY) || createClientId(),
+    name: localStorage.getItem(CLIENT_NAME_KEY) || "",
+    roomId: Number(localStorage.getItem(CLIENT_ROOM_KEY)) || null,
+    roomName: "",
+};
+
+localStorage.setItem(CLIENT_ID_KEY, novaClient.id);
 
 const allowedStatuses = [
     "idle",
@@ -50,9 +82,11 @@ let keepaliveTimer = null;
 */
 
 let historyLoaded = false;
+let historySignature = "";
+let historyRefreshTimer = null;
 
-async function loadConversationHistory() {
-    if (!messagesContainer || historyLoaded) {
+async function loadConversationHistory({ force = false } = {}) {
+    if (!messagesContainer || (historyLoaded && !force)) {
         return;
     }
 
@@ -68,31 +102,65 @@ async function loadConversationHistory() {
 
         const data = await response.json();
         const messages = Array.isArray(data.messages) ? data.messages : [];
+        const nextSignature = JSON.stringify(
+            messages.map((message) => [
+                message.id,
+                message.role,
+                message.content,
+                message.source,
+            ])
+        );
+
+        if (historyLoaded && nextSignature === historySignature) {
+            return;
+        }
+
+        const wasNearBottom =
+            messagesContainer.scrollHeight -
+            messagesContainer.scrollTop -
+            messagesContainer.clientHeight < 80;
 
         messagesContainer.innerHTML = "";
 
         if (!messages.length) {
-            addMessage("Nova", "Hello. What can I help you with?", "nova");
+            addMessage("Nova", "Hello. What can I help you with?", "nova", false);
         } else {
             messages.forEach((message) => {
                 const isUser = message.role === "user";
                 addMessage(
                     isUser ? "You" : "Nova",
                     message.content || "",
-                    isUser ? "user" : (message.source === "error" ? "error" : "nova")
+                    isUser ? "user" : (String(message.source || "").endsWith("error") ? "error" : "nova"),
+                    false
                 );
             });
         }
 
+        historySignature = nextSignature;
         historyLoaded = true;
+
+        if (wasNearBottom || !historySignature) {
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
     } catch (error) {
         console.error("Unable to load conversation history:", error);
-        messagesContainer.innerHTML = "";
-        addMessage("Nova", "Hello. What can I help you with?", "nova");
+        if (!historyLoaded) {
+            messagesContainer.innerHTML = "";
+            addMessage("Nova", "Hello. What can I help you with?", "nova");
+        }
     }
 }
 
-function addMessage(sender, text, type = "nova") {
+function startConversationSync() {
+    if (historyRefreshTimer) return;
+    historyRefreshTimer = window.setInterval(() => {
+        if (!document.hidden) {
+            loadConversationHistory({ force: true });
+        }
+    }, 1500);
+}
+
+function addMessage(sender, text, type = "nova", smoothScroll = true) {
     if (!messagesContainer) {
         return;
     }
@@ -120,7 +188,7 @@ function addMessage(sender, text, type = "nova") {
 
     messagesContainer.scrollTo({
         top: messagesContainer.scrollHeight,
-        behavior: "smooth",
+        behavior: smoothScroll ? "smooth" : "auto",
     });
 }
 
@@ -276,9 +344,11 @@ function connectStateSocket() {
         setConnected(true);
 
         stopKeepalive();
+        registerSocketClient();
+
         keepaliveTimer = window.setInterval(() => {
             if (stateSocket?.readyState === WebSocket.OPEN) {
-                stateSocket.send("ping");
+                stateSocket.send(JSON.stringify({ type: "ping" }));
             }
         }, 25000);
     });
@@ -289,6 +359,8 @@ function connectStateSocket() {
 
             if (message.type === "state") {
                 applyState(message.data);
+            } else if (message.type === "client_registered") {
+                applyRegisteredClient(message.data);
             }
         } catch (error) {
             console.error("Invalid Nova WebSocket message:", error);
@@ -337,6 +409,7 @@ async function sendCommand(command) {
 
             body: JSON.stringify({
                 command,
+                client_id: novaClient.id,
             }),
         });
 
@@ -417,6 +490,8 @@ clearButton?.addEventListener("click", async () => {
             throw new Error(`Clear history failed: ${response.status}`);
         }
 
+        historySignature = "";
+        historyLoaded = false;
         messagesContainer.innerHTML = "";
         addMessage(
             "Nova",
@@ -534,6 +609,7 @@ document.addEventListener("keydown", (event) => {
 document.addEventListener("visibilitychange", () => {
     if (!document.hidden) {
         connectStateSocket();
+        loadConversationHistory({ force: true });
     }
 });
 
@@ -549,9 +625,203 @@ setInterval(updateClock, 1000);
 
 updateOrb(currentStatus);
 loadConversationHistory();
+startConversationSync();
 connectStateSocket();
+initializeClientIdentity();
 
 commandInput?.focus();
+
+
+/*
+|--------------------------------------------------------------------------
+| Client and room identity
+|--------------------------------------------------------------------------
+*/
+
+function updateClientIdentityDisplay() {
+    if (clientIdentityName) {
+        clientIdentityName.textContent = novaClient.name || "This display";
+    }
+
+    if (clientIdentityRoom) {
+        clientIdentityRoom.textContent = novaClient.roomName || "Choose a room";
+    }
+}
+
+function applyRegisteredClient(client) {
+    if (!client || typeof client !== "object") return;
+
+    novaClient.name = client.name || novaClient.name;
+    novaClient.roomId = Number(client.room_id) || null;
+    novaClient.roomName = client.room_name || "";
+
+    localStorage.setItem(CLIENT_NAME_KEY, novaClient.name);
+    if (novaClient.roomId) {
+        localStorage.setItem(CLIENT_ROOM_KEY, String(novaClient.roomId));
+    } else {
+        localStorage.removeItem(CLIENT_ROOM_KEY);
+    }
+
+    updateClientIdentityDisplay();
+}
+
+function registerSocketClient() {
+    if (stateSocket?.readyState !== WebSocket.OPEN || !novaClient.name) {
+        return;
+    }
+
+    stateSocket.send(JSON.stringify({
+        type: "register",
+        client_id: novaClient.id,
+        name: novaClient.name,
+        room_id: novaClient.roomId,
+    }));
+}
+
+async function loadRooms(selectedRoomId = novaClient.roomId) {
+    const response = await fetch("/api/rooms", { cache: "no-store" });
+    if (!response.ok) throw new Error(`Room request failed: ${response.status}`);
+
+    const data = await response.json();
+    const rooms = Array.isArray(data.rooms) ? data.rooms : [];
+
+    if (!clientRoomSelect) return rooms;
+
+    clientRoomSelect.innerHTML = "";
+    rooms.forEach((room) => {
+        const option = document.createElement("option");
+        option.value = String(room.id);
+        option.textContent = room.name;
+        option.selected = Number(room.id) === Number(selectedRoomId);
+        clientRoomSelect.appendChild(option);
+    });
+
+    if (!clientRoomSelect.value && rooms[0]) {
+        clientRoomSelect.value = String(rooms[0].id);
+    }
+
+    return rooms;
+}
+
+async function loadExistingClient() {
+    try {
+        const response = await fetch(`/api/clients/${encodeURIComponent(novaClient.id)}`, {
+            cache: "no-store",
+        });
+        if (!response.ok) throw new Error(`Client request failed: ${response.status}`);
+
+        const data = await response.json();
+        if (data.client) {
+            applyRegisteredClient(data.client);
+            return true;
+        }
+    } catch (error) {
+        console.error("Unable to load Nova client identity:", error);
+    }
+
+    return false;
+}
+
+async function openClientSetup(force = false) {
+    if (!clientSetupModal) return;
+
+    try {
+        await loadRooms();
+        clientNameInput.value = novaClient.name || "Laptop Dashboard";
+        if (novaClient.roomId) clientRoomSelect.value = String(novaClient.roomId);
+        clientSetupStatus.textContent = "";
+        clientSetupModal.hidden = false;
+        clientSetupModal.dataset.required = force ? "true" : "false";
+        clientSetupCancel.hidden = force;
+        clientNameInput.focus();
+    } catch (error) {
+        console.error(error);
+        clientSetupStatus.textContent = "Could not load rooms.";
+    }
+}
+
+function closeClientSetup() {
+    if (!clientSetupModal) return;
+    if (clientSetupModal.dataset.required === "true") return;
+    clientSetupModal.hidden = true;
+}
+
+clientSettingsButton?.addEventListener("click", () => openClientSetup(false));
+clientSetupCancel?.addEventListener("click", closeClientSetup);
+
+addRoomButton?.addEventListener("click", async () => {
+    const name = newRoomInput.value.trim();
+    if (!name) return;
+
+    addRoomButton.disabled = true;
+    clientSetupStatus.textContent = "";
+
+    try {
+        const response = await fetch("/api/rooms", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name }),
+        });
+
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.detail || "Could not create room.");
+        }
+
+        newRoomInput.value = "";
+        await loadRooms(data.room.id);
+    } catch (error) {
+        clientSetupStatus.textContent = error.message || "Could not create room.";
+    } finally {
+        addRoomButton.disabled = false;
+    }
+});
+
+clientSetupForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    const name = clientNameInput.value.trim();
+    const roomId = Number(clientRoomSelect.value);
+    if (!name || !roomId) return;
+
+    clientSetupStatus.textContent = "Saving...";
+
+    try {
+        const response = await fetch(`/api/clients/${encodeURIComponent(novaClient.id)}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                client_id: novaClient.id,
+                name,
+                room_id: roomId,
+            }),
+        });
+
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.detail || "Could not save display identity.");
+        }
+
+        applyRegisteredClient(data.client);
+        clientSetupModal.dataset.required = "false";
+        clientSetupModal.hidden = true;
+        registerSocketClient();
+    } catch (error) {
+        clientSetupStatus.textContent = error.message || "Could not save display identity.";
+    }
+});
+
+async function initializeClientIdentity() {
+    updateClientIdentityDisplay();
+    const exists = await loadExistingClient();
+
+    if (!exists || !novaClient.name || !novaClient.roomId) {
+        await openClientSetup(true);
+    } else {
+        registerSocketClient();
+    }
+}
+
 /*
 |--------------------------------------------------------------------------
 | Music dashboard
@@ -572,6 +842,8 @@ const musicNext = document.getElementById("music-next");
 const musicVolume = document.getElementById("music-volume");
 const musicVolumeValue = document.getElementById("music-volume-value");
 const musicDevice = document.getElementById("music-device");
+const musicDeviceSelect = document.getElementById("music-device-select");
+const musicDeviceRefresh = document.getElementById("music-device-refresh");
 const musicSearchForm = document.getElementById("music-search-form");
 const musicSearchInput = document.getElementById("music-search-input");
 const musicSearchStatus = document.getElementById("music-search-status");
@@ -580,6 +852,7 @@ const musicSearchResults = document.getElementById("music-search-results");
 let musicIsPlaying = false;
 let musicRefreshTimer = null;
 let volumeUpdateTimer = null;
+let selectedSpotifyDeviceId = null;
 
 function formatMusicTime(milliseconds) {
     const totalSeconds = Math.max(0, Math.floor((milliseconds || 0) / 1000));
@@ -637,12 +910,75 @@ function renderMusicState(playback) {
         musicVolume.value = String(volume);
     }
     if (musicVolumeValue) musicVolumeValue.textContent = `${volume}%`;
+    selectedSpotifyDeviceId = playback.selected_device_id || selectedSpotifyDeviceId;
     if (musicDevice) {
         musicDevice.textContent = playback.device
             ? `Playing on ${playback.device}`
-            : "No active Spotify device";
+            : (selectedSpotifyDeviceId ? "Selected device is ready" : "No active Spotify device");
+    }
+    if (musicDeviceSelect && selectedSpotifyDeviceId) {
+        musicDeviceSelect.value = selectedSpotifyDeviceId;
     }
 }
+
+async function refreshSpotifyDevices() {
+    if (!musicDeviceSelect) return;
+
+    try {
+        const response = await fetch("/api/music/devices", { cache: "no-store" });
+        if (!response.ok) throw new Error(`Device request failed: ${response.status}`);
+        const data = await response.json();
+        const devices = Array.isArray(data.devices) ? data.devices : [];
+
+        musicDeviceSelect.innerHTML = "";
+        if (!devices.length) {
+            const option = new Option("Open Spotify on a playback device", "");
+            musicDeviceSelect.add(option);
+            musicDeviceSelect.disabled = true;
+            selectedSpotifyDeviceId = null;
+            return;
+        }
+
+        musicDeviceSelect.disabled = false;
+        devices.forEach((device) => {
+            const suffix = device.is_active ? " (active)" : "";
+            const option = new Option(`${device.name} · ${device.type}${suffix}`, device.id);
+            option.disabled = Boolean(device.is_restricted);
+            musicDeviceSelect.add(option);
+            if (device.is_selected) selectedSpotifyDeviceId = device.id;
+        });
+
+        if (selectedSpotifyDeviceId) musicDeviceSelect.value = selectedSpotifyDeviceId;
+    } catch (error) {
+        console.error("Unable to retrieve Spotify devices:", error);
+    }
+}
+
+musicDeviceSelect?.addEventListener("change", async () => {
+    const deviceId = musicDeviceSelect.value;
+    if (!deviceId) return;
+    musicDeviceSelect.disabled = true;
+    try {
+        await sendMusicAction("/api/music/device", { device_id: deviceId });
+        selectedSpotifyDeviceId = deviceId;
+        await refreshSpotifyDevices();
+    } catch (error) {
+        console.error(error);
+        if (musicDevice) musicDevice.textContent = "Could not select that Spotify device";
+    } finally {
+        musicDeviceSelect.disabled = false;
+    }
+});
+
+musicDeviceRefresh?.addEventListener("click", async () => {
+    musicDeviceRefresh.disabled = true;
+    try {
+        await refreshSpotifyDevices();
+        await refreshMusicState();
+    } finally {
+        musicDeviceRefresh.disabled = false;
+    }
+});
 
 async function refreshMusicState() {
     if (!musicPage?.classList.contains("active")) return;
@@ -761,6 +1097,7 @@ function updateMusicRefreshLoop() {
     const isOpen = musicPage?.classList.contains("active");
 
     if (isOpen && !musicRefreshTimer) {
+        refreshSpotifyDevices();
         refreshMusicState();
         musicRefreshTimer = window.setInterval(refreshMusicState, 3000);
     } else if (!isOpen && musicRefreshTimer) {
@@ -774,3 +1111,325 @@ navButtons.forEach((button) => {
         window.setTimeout(updateMusicRefreshLoop, 0);
     });
 });
+
+
+/* Calendar dashboard */
+const calendarPage = document.getElementById("calendar-page");
+const calendarEvents = document.getElementById("calendar-events");
+const calendarStatus = document.getElementById("calendar-status");
+const calendarRefresh = document.getElementById("calendar-refresh");
+
+function calendarDayLabel(dateString) {
+    const date = new Date(`${dateString}T12:00:00`);
+    const today = new Date();
+    const tomorrow = new Date();
+    tomorrow.setDate(today.getDate() + 1);
+    const key = date.toDateString();
+    if (key === today.toDateString()) return "Today";
+    if (key === tomorrow.toDateString()) return "Tomorrow";
+    return date.toLocaleDateString([], { weekday: "long" });
+}
+
+function renderCalendarEvents(events) {
+    calendarEvents.innerHTML = "";
+    if (!events.length) {
+        calendarEvents.innerHTML = '<div class="empty-state">No events in the next seven days.</div>';
+        return;
+    }
+    const groups = new Map();
+    events.forEach((event) => {
+        if (!groups.has(event.display_date)) groups.set(event.display_date, []);
+        groups.get(event.display_date).push(event);
+    });
+    groups.forEach((items, date) => {
+        const section = document.createElement("section");
+        section.className = "calendar-day";
+        const heading = document.createElement("div");
+        heading.className = "calendar-day-heading";
+        const strong = document.createElement("strong");
+        strong.textContent = calendarDayLabel(date);
+        const span = document.createElement("span");
+        span.textContent = new Date(`${date}T12:00:00`).toLocaleDateString([], { month: "long", day: "numeric" });
+        heading.append(strong, span);
+        section.appendChild(heading);
+        items.forEach((event) => {
+            const row = document.createElement("article");
+            row.className = "calendar-event";
+            const time = document.createElement("div");
+            time.className = "calendar-event-time";
+            time.textContent = event.display_time;
+            const copy = document.createElement("div");
+            const title = document.createElement("h3");
+            if (event.html_link) {
+                const link = document.createElement("a");
+                link.href = event.html_link;
+                link.target = "_blank";
+                link.rel = "noopener";
+                link.textContent = event.title;
+                title.appendChild(link);
+            } else title.textContent = event.title;
+            copy.appendChild(title);
+            if (event.location) {
+                const location = document.createElement("p");
+                location.textContent = event.location;
+                copy.appendChild(location);
+            }
+            if (event.description) {
+                const description = document.createElement("p");
+                description.textContent = event.description;
+                copy.appendChild(description);
+            }
+            row.append(time, copy);
+            section.appendChild(row);
+        });
+        calendarEvents.appendChild(section);
+    });
+}
+
+async function refreshCalendar() {
+    if (!calendarPage?.classList.contains("active")) return;
+    calendarStatus.textContent = "Loading calendar...";
+    try {
+        const response = await fetch("/api/calendar/events?days=7", { cache: "no-store" });
+        if (!response.ok) throw new Error(`Calendar failed: ${response.status}`);
+        const data = await response.json();
+        const events = Array.isArray(data.events) ? data.events : [];
+        calendarStatus.textContent = `${events.length} upcoming event${events.length === 1 ? "" : "s"}`;
+        renderCalendarEvents(events);
+    } catch (error) {
+        console.error(error);
+        calendarStatus.textContent = "Calendar is unavailable. Check Google authentication and the server logs.";
+        calendarEvents.innerHTML = "";
+    }
+}
+calendarRefresh?.addEventListener("click", refreshCalendar);
+
+/* Alarms dashboard */
+const alarmsPage = document.getElementById("alarms-page");
+const alarmsList = document.getElementById("alarms-list");
+const alarmsStatus = document.getElementById("alarms-status");
+const alarmsRefresh = document.getElementById("alarms-refresh");
+const alarmForm = document.getElementById("alarm-form");
+const alarmTime = document.getElementById("alarm-time");
+const alarmLabel = document.getElementById("alarm-label");
+const alarmFormStatus = document.getElementById("alarm-form-status");
+const weekdayButtons = Array.from(document.querySelectorAll(".weekday-button"));
+const weekdayPresetButtons = Array.from(document.querySelectorAll("[data-alarm-preset]"));
+let alarmCountdownTimer = null;
+
+const shortDayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+function setSelectedAlarmDays(days) {
+    const selected = new Set(days.map(Number));
+    weekdayButtons.forEach((button) => {
+        const active = selected.has(Number(button.dataset.day));
+        button.classList.toggle("selected", active);
+        button.setAttribute("aria-pressed", String(active));
+    });
+}
+
+function selectedAlarmDays() {
+    return weekdayButtons
+        .filter((button) => button.classList.contains("selected"))
+        .map((button) => Number(button.dataset.day));
+}
+
+weekdayButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+        button.classList.toggle("selected");
+        button.setAttribute("aria-pressed", String(button.classList.contains("selected")));
+    });
+});
+
+weekdayPresetButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+        const preset = button.dataset.alarmPreset;
+        if (preset === "weekdays") setSelectedAlarmDays([0, 1, 2, 3, 4]);
+        if (preset === "weekends") setSelectedAlarmDays([5, 6]);
+        if (preset === "daily") setSelectedAlarmDays([0, 1, 2, 3, 4, 5, 6]);
+    });
+});
+
+function formatAlarmTime(time) {
+    const [hour, minute] = String(time || "00:00").split(":").map(Number);
+    const date = new Date();
+    date.setHours(hour, minute, 0, 0);
+    return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+function formatAlarmDays(days) {
+    const normalized = [...days].map(Number).sort((a, b) => a - b);
+    if (normalized.join(",") === "0,1,2,3,4,5,6") return "Every day";
+    if (normalized.join(",") === "0,1,2,3,4") return "Weekdays";
+    if (normalized.join(",") === "5,6") return "Weekends";
+    return normalized.map((day) => shortDayNames[day]).join(", ");
+}
+
+function formatCountdown(time) {
+    if (!time) return "Disabled";
+    const seconds = Math.max(0, Math.floor((new Date(time).getTime() - Date.now()) / 1000));
+    const days = Math.floor(seconds / 86400);
+    const hours = Math.floor((seconds % 86400) / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    if (days) return `Next in ${days}d ${hours}h ${minutes}m`;
+    if (hours) return `Next in ${hours}h ${minutes}m`;
+    return `Next in ${minutes}m ${secs}s`;
+}
+
+function updateAlarmCountdowns() {
+    document.querySelectorAll("[data-next-occurrence]").forEach((element) => {
+        element.textContent = formatCountdown(element.dataset.nextOccurrence || null);
+    });
+}
+
+async function setAlarmEnabled(alarm, enabled, toggle) {
+    toggle.disabled = true;
+    try {
+        const response = await fetch(`/api/alarms/${encodeURIComponent(alarm.id)}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify({ enabled }),
+        });
+        if (!response.ok) throw new Error(`Update failed: ${response.status}`);
+        await refreshAlarms();
+    } catch (error) {
+        console.error(error);
+        alarmsStatus.textContent = "The alarm could not be updated.";
+        toggle.checked = !enabled;
+        toggle.disabled = false;
+    }
+}
+
+function renderAlarms(alarms) {
+    alarmsList.innerHTML = "";
+    if (!alarms.length) {
+        alarmsList.innerHTML = '<div class="empty-state">No weekly alarms have been created.</div>';
+        return;
+    }
+
+    alarms.forEach((alarm) => {
+        const row = document.createElement("article");
+        row.className = "alarm-row weekly-alarm-row";
+        row.classList.toggle("disabled", !alarm.enabled);
+
+        const timeBlock = document.createElement("div");
+        timeBlock.className = "alarm-time-block";
+        const time = document.createElement("strong");
+        time.textContent = formatAlarmTime(alarm.time);
+        const days = document.createElement("span");
+        days.textContent = formatAlarmDays(Array.isArray(alarm.days) ? alarm.days : []);
+        timeBlock.append(time, days);
+
+        const copy = document.createElement("div");
+        copy.className = "alarm-copy";
+        const title = document.createElement("h4");
+        title.textContent = alarm.label || "Morning routine";
+        const countdown = document.createElement("p");
+        countdown.className = "alarm-countdown";
+        countdown.dataset.nextOccurrence = alarm.next_occurrence || "";
+        countdown.textContent = alarm.enabled ? formatCountdown(alarm.next_occurrence) : "Disabled";
+        copy.append(title, countdown);
+
+        const actions = document.createElement("div");
+        actions.className = "alarm-actions";
+
+        const switchLabel = document.createElement("label");
+        switchLabel.className = "alarm-switch";
+        switchLabel.setAttribute("aria-label", `${alarm.enabled ? "Disable" : "Enable"} ${alarm.label}`);
+        const toggle = document.createElement("input");
+        toggle.type = "checkbox";
+        toggle.checked = Boolean(alarm.enabled);
+        const slider = document.createElement("span");
+        slider.className = "alarm-switch-slider";
+        toggle.addEventListener("change", () => setAlarmEnabled(alarm, toggle.checked, toggle));
+        switchLabel.append(toggle, slider);
+
+        const remove = document.createElement("button");
+        remove.className = "alarm-delete";
+        remove.type = "button";
+        remove.textContent = "Delete";
+        remove.addEventListener("click", async () => {
+            remove.disabled = true;
+            try {
+                const response = await fetch(`/api/alarms/${encodeURIComponent(alarm.id)}`, { method: "DELETE" });
+                if (!response.ok) throw new Error(`Delete failed: ${response.status}`);
+                await refreshAlarms();
+            } catch (error) {
+                console.error(error);
+                alarmsStatus.textContent = "The alarm could not be deleted.";
+                remove.disabled = false;
+            }
+        });
+
+        actions.append(switchLabel, remove);
+        row.append(timeBlock, copy, actions);
+        alarmsList.appendChild(row);
+    });
+    updateAlarmCountdowns();
+}
+
+async function refreshAlarms() {
+    if (!alarmsPage?.classList.contains("active")) return;
+    alarmsStatus.textContent = "Loading alarms...";
+    try {
+        const response = await fetch("/api/alarms", { cache: "no-store" });
+        if (!response.ok) throw new Error(`Alarms failed: ${response.status}`);
+        const data = await response.json();
+        const alarms = Array.isArray(data.alarms) ? data.alarms : [];
+        const enabledCount = alarms.filter((alarm) => alarm.enabled).length;
+        alarmsStatus.textContent = `${enabledCount} active · ${alarms.length} total`;
+        renderAlarms(alarms);
+    } catch (error) {
+        console.error(error);
+        alarmsStatus.textContent = "Alarms are unavailable.";
+        alarmsList.innerHTML = "";
+    }
+}
+
+alarmForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const days = selectedAlarmDays();
+    if (!alarmTime?.value) {
+        alarmFormStatus.textContent = "Choose an alarm time.";
+        return;
+    }
+    if (!days.length) {
+        alarmFormStatus.textContent = "Select at least one day.";
+        return;
+    }
+
+    alarmFormStatus.textContent = "Creating alarm...";
+    try {
+        const response = await fetch("/api/alarms", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify({
+                time: alarmTime.value,
+                days,
+                label: alarmLabel.value.trim() || "Morning routine",
+                enabled: true,
+            }),
+        });
+        if (!response.ok) throw new Error(await response.text());
+        alarmFormStatus.textContent = "Weekly alarm created.";
+        await refreshAlarms();
+    } catch (error) {
+        console.error(error);
+        alarmFormStatus.textContent = "The alarm could not be created.";
+    }
+});
+alarmsRefresh?.addEventListener("click", refreshAlarms);
+setSelectedAlarmDays([0, 1, 2, 3, 4]);
+
+function updateDataPages() {
+    if (calendarPage?.classList.contains("active")) refreshCalendar();
+    if (alarmsPage?.classList.contains("active")) {
+        refreshAlarms();
+        if (!alarmCountdownTimer) alarmCountdownTimer = window.setInterval(updateAlarmCountdowns, 1000);
+    } else if (alarmCountdownTimer) {
+        window.clearInterval(alarmCountdownTimer);
+        alarmCountdownTimer = null;
+    }
+}
+navButtons.forEach((button) => button.addEventListener("click", () => window.setTimeout(updateDataPages, 0)));

@@ -88,6 +88,11 @@
             </nav>
 
             <div class="sidebar-footer">
+                <button id="client-settings-button" class="client-identity-button" type="button">
+                    <span class="client-identity-name" id="client-identity-name">This display</span>
+                    <span class="client-identity-room" id="client-identity-room">Choose a room</span>
+                </button>
+
                 <div class="connection-indicator">
                     <span
                         id="connection-dot"
@@ -535,6 +540,16 @@
                                 <span id="music-volume-value">50%</span>
                             </div>
 
+                            <div class="spotify-device-picker">
+                                <label for="music-device-select">Playback device</label>
+                                <div class="spotify-device-row">
+                                    <select id="music-device-select" aria-label="Spotify playback device">
+                                        <option value="">No Spotify devices found</option>
+                                    </select>
+                                    <button id="music-device-refresh" type="button">Refresh</button>
+                                </div>
+                            </div>
+
                             <p id="music-device" class="music-device">No active Spotify device</p>
                         </div>
                     </section>
@@ -558,29 +573,87 @@
                 </div>
             </section>
 
-            <section
-                id="calendar-page"
-                class="page placeholder-page"
-            >
-                <h2>Calendar</h2>
-
-                <p>
-                    Your calendar overview will appear here.
-                </p>
+            <section id="calendar-page" class="page data-page">
+                <div class="page-heading-row">
+                    <div><p class="eyebrow">Google Calendar</p><h2>Upcoming events</h2><p>Today and the next seven days.</p></div>
+                    <button id="calendar-refresh" class="secondary-action" type="button">Refresh</button>
+                </div>
+                <div id="calendar-status" class="data-status">Loading calendar...</div>
+                <div id="calendar-events" class="calendar-events"></div>
             </section>
 
-            <section
-                id="alarms-page"
-                class="page placeholder-page"
-            >
-                <h2>Alarms</h2>
+            <section id="alarms-page" class="page data-page">
+                <div class="page-heading-row">
+                    <div><p class="eyebrow">Wake-up routines</p><h2>Alarms</h2><p>Create recurring alarms for selected days of the week.</p></div>
+                </div>
+                <div class="alarms-layout">
+                    <form id="alarm-form" class="data-card alarm-form-card">
+                        <h3>New weekly alarm</h3>
+                        <label for="alarm-time">Time</label>
+                        <input id="alarm-time" type="time" value="07:00" required>
 
-                <p>
-                    Your saved alarms will appear here.
-                </p>
+                        <fieldset class="weekday-fieldset">
+                            <legend>Repeat on</legend>
+                            <div id="alarm-weekdays" class="weekday-picker" aria-label="Alarm weekdays">
+                                <button type="button" class="weekday-button" data-day="0" aria-pressed="false">M<span>Mon</span></button>
+                                <button type="button" class="weekday-button" data-day="1" aria-pressed="false">T<span>Tue</span></button>
+                                <button type="button" class="weekday-button" data-day="2" aria-pressed="false">W<span>Wed</span></button>
+                                <button type="button" class="weekday-button" data-day="3" aria-pressed="false">T<span>Thu</span></button>
+                                <button type="button" class="weekday-button" data-day="4" aria-pressed="false">F<span>Fri</span></button>
+                                <button type="button" class="weekday-button" data-day="5" aria-pressed="false">S<span>Sat</span></button>
+                                <button type="button" class="weekday-button" data-day="6" aria-pressed="false">S<span>Sun</span></button>
+                            </div>
+                            <div class="weekday-presets">
+                                <button type="button" data-alarm-preset="weekdays">Weekdays</button>
+                                <button type="button" data-alarm-preset="weekends">Weekends</button>
+                                <button type="button" data-alarm-preset="daily">Every day</button>
+                            </div>
+                        </fieldset>
+
+                        <label for="alarm-label">Label</label>
+                        <input id="alarm-label" type="text" value="Morning routine" maxlength="120">
+                        <button type="submit">Create alarm</button>
+                        <p id="alarm-form-status" class="form-status"></p>
+                    </form>
+                    <section class="data-card alarm-list-card">
+                        <div class="card-heading"><h3>Saved alarms</h3><button id="alarms-refresh" class="text-button" type="button">Refresh</button></div>
+                        <div id="alarms-status" class="data-status">Loading alarms...</div>
+                        <div id="alarms-list" class="alarms-list"></div>
+                    </section>
+                </div>
             </section>
 
         </main>
+    </div>
+
+
+    <div id="client-setup-modal" class="client-setup-modal" hidden>
+        <div class="client-setup-backdrop"></div>
+        <section class="client-setup-card" role="dialog" aria-modal="true" aria-labelledby="client-setup-title">
+            <p class="eyebrow">Display identity</p>
+            <h2 id="client-setup-title">Where is this Nova display?</h2>
+            <p class="client-setup-copy">Each browser gets its own identity. Later, Nova will use this room for music, alarms, speech and smart-home actions.</p>
+
+            <form id="client-setup-form">
+                <label for="client-name-input">Display name</label>
+                <input id="client-name-input" type="text" maxlength="80" placeholder="Bedroom tablet" required>
+
+                <label for="client-room-select">Room</label>
+                <select id="client-room-select" required></select>
+
+                <div class="new-room-row">
+                    <input id="new-room-input" type="text" maxlength="80" placeholder="Add another room">
+                    <button id="add-room-button" type="button">Add room</button>
+                </div>
+
+                <p id="client-setup-status" class="client-setup-status"></p>
+
+                <div class="client-setup-actions">
+                    <button id="client-setup-cancel" class="secondary-action" type="button">Cancel</button>
+                    <button class="primary-action" type="submit">Save display</button>
+                </div>
+            </form>
+        </section>
     </div>
 
     <script src="/static/app.js"></script>
